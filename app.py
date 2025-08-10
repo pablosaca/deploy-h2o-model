@@ -4,6 +4,8 @@ from flask import Flask, request, jsonify
 
 import h2o
 
+from deploy.utils import preprocessing_data, model_prediction_value, input_check
+
 # Iniciar H2O y mantenerlo vivo (nunca cerrar)
 h2o.init()
 h2o.no_progress()  # opcional, para evitar spam en consola
@@ -29,30 +31,21 @@ app = Flask(__name__)
 def predict():
     try:
         data = request.get_json()
+        input_check(data)
+
         h2o_df = h2o.H2OFrame(data)
         h2o_df = preprocessing_data(h2o_df)
         glm_pred_value = model_prediction_value(glm_model, h2o_df)
         gbm_pred_value = model_prediction_value(gbm_model, h2o_df)
 
         # ponderación de la salida del modelo
-        pred_value = glm_pred_value * 0.1 + gbm_pred_value * 0.9
+        pred_value = [
+            glm_v * 0.1 + gbm_v * 0.9
+            for glm_v, gbm_v in zip(glm_pred_value, gbm_pred_value)
+        ]
         return jsonify({"predictions": pred_value}), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
-
-
-def preprocessing_data(data):
-
-    # identificación de las variables factor (variables categóricas)
-    data['CHAS'] = data['CHAS'].asfactor()
-    data['RAD'] = data['RAD'].asfactor()
-    return data
-
-
-def model_prediction_value(model, data) -> float:
-    value = model.predict(data).as_data_frame(use_pandas=False)  # lista directa
-    # hay que coger el segundo elemento (el primer elemento es la columna de una hipotética tabla)
-    return float(value[1][0])  # la salida es un string por eso se convierte a float
+        return jsonify( {"error": str(e)}), 400
 
 
 if __name__ == "__main__":
